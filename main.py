@@ -18,12 +18,10 @@ from typing import Any
 from pathlib import Path
 import argparse
 from queue import PriorityQueue
-import ollama
 import requests
-from functools import lru_cache
 
 from job_profiles import JobProfile, ProfilePaths, default_profile_slug, load_profiles
-from ollama_config import installed_models, select_model
+from llm_client import chat_json
 from jobs_core import (
     Job,
     LLMScore,
@@ -38,18 +36,6 @@ from jobs_core import (
 
 
 ROOT = Path(__file__).resolve().parent
-
-
-@lru_cache(maxsize=1)
-def active_ollama_model() -> str:
-    """Resolve an explicit override or automatically use an installed model."""
-    model = select_model(installed_models(timeout=3.0) or ())
-    if model is None:
-        raise RuntimeError(
-            "No Ollama model is installed. Pull one with `ollama pull <model>`, "
-            "or set OLLAMA_MODEL to a locally available model name."
-        )
-    return model
 
 
 # =============================================================================
@@ -494,7 +480,7 @@ def parse_resume_skills(text: str) -> list[str]:
     return skills
 
 
-def score_with_ollama(resume_text: str, job: Job, profile: JobProfile) -> LLMScore:
+def score_with_llm(resume_text: str, job: Job, profile: JobProfile) -> LLMScore:
     candidate = resume_text or "No profile-specific resume has been configured."
     prompt = (
         "Evaluate whether this job is a realistic fit for the candidate and the selected "
@@ -520,10 +506,8 @@ def score_with_ollama(resume_text: str, job: Job, profile: JobProfile) -> LLMSco
         f"Job Description:\n{job.description[: constants.SCORING_DESCRIPTION_MAX_CHARS]}\n"
     )
 
-    resp = ollama.chat(
-        model=active_ollama_model(),
-        options={"temperature": 0, "num_ctx": 8192},
-        messages=[
+    payload = chat_json(
+        [
             {
                 "role": "system",
                 "content": constants.SCORING_SYSTEM_PROMPT,
@@ -533,21 +517,13 @@ def score_with_ollama(resume_text: str, job: Job, profile: JobProfile) -> LLMSco
                 "content": prompt,
             },
         ],
-        format={
+        {
             "type": "object",
             "properties": {"score": {"type": "integer"}, "reason": {"type": "string"}},
             "required": ["score", "reason"],
+            "additionalProperties": False,
         },
     )
-
-    content = resp["message"]["content"]
-    try:
-        payload = json.loads(content)
-    except json.JSONDecodeError:
-        start, end = content.find("{"), content.rfind("}")
-        if start == -1 or end <= start:
-            raise ValueError(f"Invalid JSON: {content[:200]}")
-        payload = json.loads(content[start : end + 1])
     return LLMScore.model_validate(payload)
 
 
@@ -555,7 +531,7 @@ def evaluated_row(
     job: Job, resume_text: str, profile: JobProfile
 ) -> dict[str, Any]:
     """Score one job and return the persisted dashboard/output representation."""
-    score = score_with_ollama(resume_text, job, profile)
+    score = score_with_llm(resume_text, job, profile)
     adjustment, signals = heuristic_fit_adjustment(job, profile)
     final_score = max(0, min(100, score.score + adjustment))
     return {

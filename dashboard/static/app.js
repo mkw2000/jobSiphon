@@ -92,8 +92,8 @@ function renderOverview(data) {
     : "No evaluation history";
   $("#model-name").textContent = data.model;
   renderProfiles(data.profiles, data.selected_profile);
-  $("#ollama-status").textContent = data.ollama.online ? "Online" : "Offline";
-  $("#ollama-dot").className = `mini-dot ${data.ollama.online ? "online" : ""}`;
+  $("#llm-status").textContent = data.llm.online ? data.llm.label : "Offline";
+  $("#llm-dot").className = `mini-dot ${data.llm.online ? "online" : ""}`;
 
   $("#run-stage").textContent = pipeline.stage.replace("-", " ");
   $("#run-title").textContent = runTitle(pipeline);
@@ -142,10 +142,13 @@ function renderOverview(data) {
   $("#cache-label").textContent = data.cache.available
     ? `Updated ${humanDate(data.cache.updated_at)}`
     : "Empty";
-  renderCheck("#engine-check", data.ollama.online);
-  $("#engine-label").textContent = data.ollama.online
-    ? `${data.ollama.models.length} model${data.ollama.models.length === 1 ? "" : "s"} installed`
-    : "Offline";
+  $("#engine-name").textContent = data.llm.label;
+  renderCheck("#engine-check", data.llm.online && data.llm.configured);
+  $("#engine-label").textContent = !data.llm.configured
+    ? "API key missing"
+    : data.llm.online
+      ? `${data.llm.models.length} model${data.llm.models.length === 1 ? "" : "s"} available`
+      : "Offline";
   const wellfound = data.wellfound;
   renderCheck("#wellfound-check", !wellfound || !wellfound.enabled || wellfound.configured);
   $("#wellfound-label").textContent = !wellfound

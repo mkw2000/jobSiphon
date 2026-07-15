@@ -51,7 +51,14 @@ class DashboardTestCase(unittest.TestCase):
         self.service = JobSiphonService(self.root)
         self.paths = self.service._profile("test-profile").paths(self.root)
         self.paths.ensure_directories()
-        self.service._ollama_status = lambda: {"online": False, "models": []}
+        self.service._llm_status = lambda: {
+            "provider": "freellmapi",
+            "label": "FreeLLM API",
+            "configured": False,
+            "online": False,
+            "model": "auto",
+            "models": [],
+        }
         self.app = create_app(self.service)
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
@@ -158,16 +165,22 @@ class DashboardTestCase(unittest.TestCase):
         self.assertIn(b"Run search", response.data)
         self.assertNotIn(b"control room", response.data)
 
-    def test_overview_auto_selects_an_installed_model(self) -> None:
-        self.service._ollama_status = lambda: {
+    def test_overview_reports_configured_llm_provider(self) -> None:
+        self.service._llm_status = lambda: {
+            "provider": "freellmapi",
+            "label": "FreeLLM API",
+            "configured": True,
             "online": True,
-            "models": ["gemma4:latest"],
+            "model": "auto",
+            "models": ["model-one", "model-two"],
         }
 
         response = self.client.get("/api/overview")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["model"], "gemma4:latest")
+        payload = response.get_json()
+        self.assertEqual(payload["model"], "auto")
+        self.assertEqual(payload["llm"]["provider"], "freellmapi")
 
     def test_pipeline_process_updates_progress_and_completes(self) -> None:
         script = self.root / "start.sh"

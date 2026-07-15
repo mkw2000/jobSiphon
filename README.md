@@ -3,7 +3,7 @@
 Local job-search pipeline that:
 1. Runs official APIs, RSS feeds, and JobSpy searches concurrently.
 2. Normalizes, deduplicates, and filters each completed search batch immediately.
-3. Scores candidates with Ollama while the remaining job-board searches continue.
+3. Scores candidates through FreeLLM API while the remaining searches continue.
 4. Writes each match and seen URL immediately so interrupted runs retain completed work.
 
 It also includes a local web dashboard for starting and stopping runs, watching
@@ -41,7 +41,7 @@ Both profile JSON and résumé text remain local, as do generated results under
 | Requirement                  | Version |
 | ---------------------------- | ------- |
 | Python                       | 3.10+   |
-| [Ollama](https://ollama.com) | latest  |
+| [FreeLLM API](http://localhost:3001) | running locally |
 | `make`                       | any     |
 
 ---
@@ -49,36 +49,36 @@ Both profile JSON and résumé text remain local, as do generated results under
 ## Quick Start
 
 ```bash
-# 1. Install Ollama  (macOS - pick one)
-brew install ollama
-# or
-curl -fsSL https://ollama.com/install.sh | sh
+# 1. Start FreeLLM API at http://localhost:3001
+# Add its unified client key to ~/.env or the project .env:
+# FREELLMAPI_UNIFIED_API_KEY=freellmapi-...
 
-# 2. Install any Ollama model you want to use, then confirm it is available
-ollama list
-# JobSiphon automatically uses an installed model. If several are installed:
-# OLLAMA_MODEL=your-model-name make run
-
-# 3. Create a private local profile and résumé
+# 2. Create a private local profile and résumé
 mkdir -p profiles/resumes
 cp examples/job-profile.example.json profiles/my-search.json
 # Edit the profile, then create the résumé path named inside it:
 touch profiles/resumes/my-search.txt
 
-# 4. Install dependencies
+# 3. Install dependencies
 make setup
 
 # Optional: enable Wellfound in your local profile and configure Apify
 cp .env.example .env
 # Add APIFY_TOKEN to .env. The default actor run is capped at $1.00.
 
-# 5. Run the local profile
+# 4. Run the local profile
 make run PROFILE=my-search
 ```
 
-`make run` starts Ollama if it is not already running, then launches the pipeline.
+`make run` verifies FreeLLM API and its unified key, then launches the pipeline.
+Set `LLM_PROVIDER=ollama` to use a locally installed Ollama model instead.
 Profile JSON, résumés, `.env`, caches, databases, and generated job lists are
 ignored by Git.
+
+FreeLLM API routes prompts to the free providers enabled in that service. Job
+descriptions and the selected profile résumé are therefore sent to whichever
+upstream provider handles each request; review the FreeLLM API routing setup if
+that data-handling tradeoff matters for a particular résumé.
 
 ### Web dashboard
 
@@ -91,11 +91,11 @@ make dashboard
 Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). The dashboard can:
 
 - Start a full discovery run or score the latest cached scrape.
-- Stop an active run and clean up the Ollama process started for it.
+- Stop an active run and retain results already written.
 - Display live search, raw-result, unique-job, scoring, and match counts.
 - Select a job profile before starting a run.
 - Search and filter that profile's current shortlist or cumulative master list.
-- Show résumé, scrape-cache, and Ollama readiness.
+- Show résumé, scrape-cache, and AI-provider readiness.
 - Show whether the optional Wellfound/Apify source is configured.
 - Clean current-run outputs or reset seen-job history with confirmation.
 
@@ -107,11 +107,11 @@ completion percentage:
 - **Searches** is completed source/term/location batches out of the configured total.
 - **Found** counts raw listings returned by those batches, including duplicates.
 - **Unique** counts distinct URLs discovered during the run.
-- **Scored** is completed Ollama evaluations out of the candidates queued so far.
+- **Scored** is completed AI evaluations out of the candidates queued so far.
 - **Matches** is the number meeting the selected profile's minimum score.
 
 Discovery and scoring overlap, so the number queued may continue increasing
-while Ollama is working. A full run queues at most 300 candidates for local-model
+while the AI provider is working. A full run queues at most 300 candidates for
 scoring. Stopping a run keeps raw cache records, completed evaluations, matches,
 master-list updates, and seen-job history already written to disk.
 
@@ -122,7 +122,7 @@ master-list updates, and seen-job history already written to disk.
 | Command         | What it does                                                      |
 | --------------- | ----------------------------------------------------------------- |
 | `make setup`    | Create a uv-managed `.venv` and install all Python dependencies   |
-| `make run PROFILE=<slug>` | Start Ollama and run the selected profile              |
+| `make run PROFILE=<slug>` | Validate the configured AI provider and run the profile |
 | `make dashboard` | Launch the local web operations dashboard at port 8765           |
 | `make clean`    | Remove `apply_list.md` and `apply_list.csv`                       |
 | `make reset-db` | Clear `seen_jobs.db` so all URLs are re-evaluated on the next run |
@@ -178,16 +178,18 @@ The pipeline:
 
 ## Troubleshooting
 
-**`ollama` not found**
-Make sure Ollama is in your PATH. `make run` calls `start.sh`, which checks this first.
+**FreeLLM API is offline or unauthorized**
+Confirm `http://localhost:3001` is running and add
+`FREELLMAPI_UNIFIED_API_KEY` to `.env` or `~/.env`. The value is the unified
+client key from FreeLLM API, not one of its upstream provider keys.
 
 **Empty `apply_list.md`**
 Adjust `minimum_score`, `search_terms`, `max_required_years`, or `locations`
 inside the selected profile JSON.
 
 **Model responses fail validation**
-Try another installed model by setting `OLLAMA_MODEL=your-model-name`. The
-pipeline does not require a specific Ollama model family.
+Try pinning another routed model with `FREELLMAPI_MODEL=<model-id>` or leave it
+as `auto` so FreeLLM API can fall over between enabled providers.
 
 **A source keeps timing out**
 Increase `SCRAPER_TIMEOUT_SECS` or disable that source in
@@ -213,7 +215,7 @@ main()
     ├── normalize + deduplicate  process each completed search batch immediately
     ├── prefilter()              profile role, location, experience, and company rules
     ├── priority score queue     bounded relevance ordering and backpressure
-    ├── single Ollama worker     score while discovery continues
+    ├── single AI worker         FreeLLM API by default; optional Ollama fallback
     └── incremental persistence  JSONL cache, current/master lists, and seen-job SQLite
 
 dashboard_server.py

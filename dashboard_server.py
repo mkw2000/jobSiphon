@@ -20,7 +20,7 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request
 
 from job_profiles import JobProfile, default_profile_slug, load_profiles
-from ollama_config import installed_models, select_model
+from llm_client import provider_status
 from runtime_config import runtime_value
 
 
@@ -360,11 +360,8 @@ class JobSiphonService:
         except (sqlite3.Error, OSError):
             return {"count": 0, "latest": None}
 
-    def _ollama_status(self) -> dict[str, Any]:
-        names = installed_models(timeout=0.65)
-        if names is None:
-            return {"online": False, "models": []}
-        return {"online": True, "models": list(names)}
+    def _llm_status(self) -> dict[str, Any]:
+        return provider_status(timeout=0.65)
 
     def overview(self, profile_slug: str | None = None) -> dict[str, Any]:
         profile = self._profile(profile_slug)
@@ -372,8 +369,7 @@ class JobSiphonService:
         cache = paths.cache
         resume = paths.resume
         cache_stats = cache.stat() if cache.exists() else None
-        ollama_status = self._ollama_status()
-        selected_model = select_model(ollama_status["models"])
+        llm_status = self._llm_status()
         return {
             "pipeline": self.pipeline_status(),
             "selected_profile": profile.public_dict(self.root),
@@ -385,8 +381,8 @@ class JobSiphonService:
                 "master": len(self._csv_rows(paths.master_csv)),
                 "seen": self._seen_stats(paths.database),
             },
-            "model": selected_model or "Auto-select installed model",
-            "ollama": ollama_status,
+            "model": llm_status["model"],
+            "llm": llm_status,
             "wellfound": {
                 "enabled": bool(profile.wellfound.get("enabled", False)),
                 "configured": bool(runtime_value("APIFY_TOKEN")),

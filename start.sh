@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# start.sh — check/start Ollama, then run the job discovery pipeline.
+# start.sh — validate the configured AI provider, then run JobSiphon.
 set -euo pipefail
 
 OLLAMA_API="http://localhost:11434/api/tags"
@@ -17,38 +17,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── 1. Require ollama binary ───────────────────────────────────────────────
-if ! command -v ollama &>/dev/null; then
-    echo "ERROR: ollama not found in PATH."
-    echo "Install it from https://ollama.com then pull a model:"
-    echo "  ollama pull mistral"
-    exit 1
-fi
-
-# ── 2. Start Ollama server if not already running ─────────────────────────
-if curl -sf "$OLLAMA_API" &>/dev/null; then
-    echo "✓ Ollama is already running."
-else
-    echo "Starting Ollama server in the background…"
-    ollama serve >/tmp/ollama-serve.log 2>&1 &
-    OLLAMA_PID=$!
-    echo "  PID: $OLLAMA_PID  (logs: /tmp/ollama-serve.log)"
-
-    # Wait up to 10 s for the server to become ready
-    for i in $(seq 1 10); do
-        if curl -sf "$OLLAMA_API" &>/dev/null; then
-            echo "✓ Ollama is ready."
-            break
-        fi
-        sleep 1
-    done
-
-    if ! curl -sf "$OLLAMA_API" &>/dev/null; then
-        echo "WARNING: Ollama did not respond within 10 s. Proceeding anyway…"
-    fi
-fi
-
-# ── 3. Require uv environment ─────────────────────────────────────────────
+# ── 1. Require the uv-managed environment ─────────────────────────────────
 if ! command -v uv &>/dev/null; then
     echo "ERROR: uv is required. Install it from https://docs.astral.sh/uv/"
     exit 1
@@ -60,7 +29,41 @@ if [ ! -f ".venv/bin/python" ]; then
     exit 1
 fi
 
-# ── 4. Run the pipeline ────────────────────────────────────────────────────
+# ── 2. Validate or start the selected provider ─────────────────────────────
+LLM_PROVIDER="$(uv run python -c 'from llm_client import provider_name; print(provider_name())')"
+if [[ "$LLM_PROVIDER" == "ollama" ]]; then
+    if ! command -v ollama &>/dev/null; then
+        echo "ERROR: LLM_PROVIDER=ollama but ollama is not installed."
+        exit 1
+    fi
+    if curl -sf "$OLLAMA_API" &>/dev/null; then
+        echo "✓ Ollama is already running."
+    else
+        echo "Starting Ollama server in the background…"
+        ollama serve >/tmp/ollama-serve.log 2>&1 &
+        OLLAMA_PID=$!
+        for _ in $(seq 1 10); do
+            curl -sf "$OLLAMA_API" &>/dev/null && break
+            sleep 1
+        done
+        curl -sf "$OLLAMA_API" &>/dev/null || {
+            echo "ERROR: Ollama did not become ready."
+            exit 1
+        }
+    fi
+else
+    uv run python - <<'PY'
+from llm_client import provider_status
+status = provider_status(timeout=3.0)
+if not status["configured"]:
+    raise SystemExit("ERROR: FREELLMAPI_UNIFIED_API_KEY is missing from .env or ~/.env")
+if not status["online"]:
+    raise SystemExit("ERROR: FreeLLM API is not responding at the configured base URL")
+print(f"✓ FreeLLM API is online ({len(status['models'])} models, route={status['model']}).")
+PY
+fi
+
+# ── 3. Run the pipeline ────────────────────────────────────────────────────
 echo ""
 echo "Starting job discovery pipeline…"
 echo "──────────────────────────────────────────────"
