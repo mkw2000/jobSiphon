@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f4f1" />
+    <title>JobSiphon</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <strong>JobSiphon</strong>
+      <span class="connection" aria-live="polite">
+        <i id="header-status-dot" class="status-dot"></i>
+        <span id="header-status">Connecting</span>
+      </span>
+    </header>
+
+    <main>
+      <section class="panel run-panel" aria-labelledby="run-heading">
+        <div class="control-grid">
+          <label>
+            <span>Profile</span>
+            <select id="profile-select" aria-describedby="profile-description"></select>
+            <small id="profile-description">Loading profiles…</small>
+          </label>
+
+          <div class="model-info">
+            <span>Model</span>
+            <strong id="model-name">—</strong>
+            <small><i id="ollama-dot" class="mini-dot"></i><span id="ollama-status">Checking Ollama</span></small>
+          </div>
+        </div>
+
+        <div class="run-status">
+          <div>
+            <span id="run-stage" class="stage-label">Idle</span>
+            <h1 id="run-heading"><span id="run-title">Idle</span></h1>
+            <p id="run-detail">Ready to run.</p>
+            <small id="run-mode">No active run</small>
+          </div>
+          <div class="run-actions">
+            <button id="start-full" class="button primary" type="button">Run search</button>
+            <button id="start-score" class="button" type="button">Score cache</button>
+            <button id="stop-run" class="button danger" type="button" hidden>Stop</button>
+          </div>
+        </div>
+
+        <div class="progress-track" aria-label="Pipeline progress"><span id="progress-bar"></span></div>
+        <div class="progress-meta"><span id="progress-percent">—</span><span id="run-time">Not running</span></div>
+        <dl id="run-counters" class="run-counters" hidden>
+          <div><dt>Searches</dt><dd id="search-counter">0/0</dd></div>
+          <div><dt>Found</dt><dd id="found-counter">0</dd></div>
+          <div><dt>Unique</dt><dd id="unique-counter">0</dd></div>
+          <div><dt>Scored</dt><dd id="scored-counter">0/0</dd></div>
+          <div><dt>Matches</dt><dd id="match-counter">0</dd></div>
+        </dl>
+
+        <dl class="readiness">
+          <div><dt><span id="resume-check" class="check-icon">…</span>Résumé</dt><dd id="resume-label">Checking</dd></div>
+          <div><dt><span id="cache-check" class="check-icon">…</span>Cache</dt><dd id="cache-label">Checking</dd></div>
+          <div><dt><span id="engine-check" class="check-icon">…</span>Ollama</dt><dd id="engine-label">Checking</dd></div>
+          <div><dt><span id="wellfound-check" class="check-icon">…</span>Wellfound</dt><dd id="wellfound-label">Checking</dd></div>
+        </dl>
+      </section>
+
+      <section class="summary" aria-label="Job totals">
+        <div><span>Current</span><strong id="current-count">—</strong></div>
+        <div><span>Master</span><strong id="master-count">—</strong></div>
+        <div><span>Seen</span><strong id="seen-count">—</strong><small id="seen-latest"></small></div>
+      </section>
+
+      <section class="panel jobs-panel" aria-labelledby="jobs-heading">
+        <div class="panel-heading">
+          <h2 id="jobs-heading">Jobs <small id="queue-profile-name"></small></h2>
+          <div class="list-tabs" role="tablist" aria-label="Job lists">
+            <button class="list-tab active" data-list="current" role="tab" aria-selected="true">Current</button>
+            <button class="list-tab" data-list="master" role="tab" aria-selected="false">Master</button>
+          </div>
+        </div>
+
+        <div class="filters">
+          <label class="search-field">
+            <span class="sr-only">Search jobs</span>
+            <input id="job-search" type="search" placeholder="Search jobs" autocomplete="off" />
+          </label>
+          <label class="score-field">
+            <span>Score</span>
+            <select id="score-filter">
+              <option value="0">Any</option>
+              <option value="50">50+</option>
+              <option value="60">60+</option>
+              <option value="70">70+</option>
+              <option value="80">80+</option>
+            </select>
+          </label>
+          <span id="job-result-count" class="result-count">Loading…</span>
+        </div>
+
+        <div class="job-table-wrap">
+          <table class="job-table">
+            <thead><tr><th>Score</th><th>Job</th><th>Location</th><th>Reason</th><th><span class="sr-only">Open</span></th></tr></thead>
+            <tbody id="job-rows"></tbody>
+          </table>
+          <div id="job-empty" class="empty-state" hidden><p>No jobs found.</p></div>
+        </div>
+      </section>
+
+      <section class="panel log-panel" aria-labelledby="log-heading">
+        <div class="panel-heading">
+          <h2 id="log-heading">Log</h2>
+          <div class="log-controls">
+            <label><input id="follow-log" type="checkbox" checked /> Follow</label>
+            <button id="clear-log-view" type="button">Clear</button>
+          </div>
+        </div>
+        <div id="log-output" class="terminal" role="log" aria-live="polite" aria-label="Pipeline output">
+          <p class="log-placeholder">No output.</p>
+        </div>
+      </section>
+
+      <details class="maintenance">
+        <summary>Maintenance</summary>
+        <div>
+          <button id="clean-output" type="button">Clean current outputs</button>
+          <button id="reset-seen" class="danger-text" type="button">Reset seen-job history</button>
+        </div>
+      </details>
+    </main>
+
+    <dialog id="confirm-dialog" class="confirm-dialog">
+      <form method="dialog">
+        <h2 id="confirm-title">Confirm</h2>
+        <p id="confirm-copy"></p>
+        <div class="dialog-actions">
+          <button value="cancel" class="button">Cancel</button>
+          <button id="confirm-action" value="confirm" class="button danger">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

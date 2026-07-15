@@ -1,0 +1,23 @@
+# Cache and environment directories
+__pycache__/
+.mypy_cache/
+.venv/
+.env
+.DS_Store
+
+# AI tool configs
+.continueignore
+
+# Resumes (matches any file starting with resume and ending in .txt)
+*resume*.txt
+
+# Tracking files
+apply_list.csv
+apply_list.md
+master_list.csv
+master_list.md
+scraped_jobs_cache.json
+seen_jobs.db
+data/
+profiles/*.json
+profiles/resumes/*.txt
